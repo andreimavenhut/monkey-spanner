@@ -18,7 +18,7 @@ create temporary function call_jruby as 'spanner.monkey.hive.GenericUDFCallJRuby
 
 
 ## Use Case ##
-### Calculate user retention rate ###
+### User retention rate ###
 ```sql
 
 -- Step 1
@@ -69,3 +69,7 @@ where active_bits[0] = 1  -- active user in '20130801'
 group by genre;
 
 ```
+
+### Collabrative Filtering ###
+
+### Sessionize ###
