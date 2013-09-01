@@ -164,7 +164,7 @@ group by a.item_id, b.item_id
 ```
 
 #### figure cosine similarity and rank ####
-```sql
+```SQL
 create temporary function to_sorted_array as 'spanner.monkey.hive.GenericUDAFToSortedArray';
 create temporary function p_rank as 'spanner.monkey.hive.PsuedoRank';
 
