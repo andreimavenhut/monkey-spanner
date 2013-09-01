@@ -137,8 +137,8 @@ scrore  double
 We can calculate recommendations for certain item in Hive by using item-based collaborative filtering algorithm.  
 Also note that we use cosine similarity here.
 
-#### prepare cosine similarity A ####
-```sql
+#### Step 1 : prepare cosine similarity ####
+```SQL
 create table item_score
 as
 select
@@ -146,10 +146,7 @@ select
   sum(pow(score, 2)) as score
 from user_log
 group by item_id
-```
 
-#### prepare cosine similarity B ####
-```sql
 create table item_cross_score
 as
 select
@@ -163,10 +160,9 @@ where a.item_id != b.item_id
 group by a.item_id, b.item_id
 ```
 
-#### figure cosine similarity and rank ####
+#### Step 2 : Figure cosine similarity ####
 ```SQL
 create temporary function to_sorted_array as 'spanner.monkey.hive.GenericUDAFToSortedArray';
-create temporary function p_rank as 'spanner.monkey.hive.PsuedoRank';
 
 
 create table item_similarity
@@ -185,28 +181,33 @@ select c.item_a, c.item_b, c.score as cross_score, b.score as b_score, uu
 from item_score b join item_cross_score c on (b.item_id = c.item_b)
 ) d on (d.item_a = a.item_id)
 ;
+```
+
+#### Step 3 : Get recommendations ####
+```SQL
+create temporary function p_rank as 'spanner.monkey.hive.PsuedoRank';
 
 create table item_reco
 as
 select
-item_a as item,
-to_sorted_array(item_b, rank) as reco
+  item_a as item,
+  to_sorted_array(item_b, rank) as reco
 from
 (
-select item_a, p_rank(item_a) as rank, item_b, similarity as score
-from
-(
-select item_a, item_b, similarity
-from item_similarity
-where uu >= 3
-distribute by item_a
-sort by item_a asc , similarity desc
-) t1
+  select
+    item_a, p_rank(item_a) as rank, item_b, similarity as score
+  from
+  (
+    select item_a, item_b, similarity
+    from item_similarity
+    where uu >= 3
+    distribute by item_a
+    sort by item_a asc , similarity desc
+  ) t1
 ) t2
 where rank <= 30
 group by item_a
 ;
 ```
-
 
 ### Sessionize ###
