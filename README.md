@@ -127,6 +127,86 @@ from t3b;
 -- 'checkin', ...,[100.0,78.36,69.06,63.37,59.44,56.73,54.09,52.18,50.45,48.69,47.22,45.96,44.97,44.22,43.45,41.95,41.25,40.8,40.46,40.16,39.87,39.31,38.87,38.44,38.02,37.58,37.12,36.66,35.23,34.68,34.12]
 ```
 
-### Collabrative Filtering ###
+### Collaborative Filtering Recommendation###
+Suppose we have a **user_history** table which contains user action history (may by purchase, rate, play, etc.):
+```sql
+user_id bigint
+item_id bigint
+scrore  double
+```
+We can calculate recommendations for certain item in Hive by using item-based collaborative filtering algorithm.  
+Also note that we use cosine similarity here.
+
+#### prepare cosine similarity A ####
+```sql
+create table item_score
+as
+select
+  item_id,
+  sum(pow(score, 2)) as score
+from user_log
+group by item_id
+```
+
+#### prepare cosine similarity B ####
+```sql
+create table item_cross_score
+as
+select
+  a.item_id as item_a,
+  b.item_id as item_b,
+  sum(a.score*b.score) as score,
+  count(distinct a.user_id) as uu
+from user_log a join user_log b
+on (a.user_id = b.user_id)
+where a.item_id != b.item_id
+group by a.item_id, b.item_id
+```
+
+#### figure cosine similarity and rank ####
+```sql
+create temporary function to_sorted_array as 'spanner.monkey.hive.GenericUDAFToSortedArray';
+create temporary function p_rank as 'spanner.monkey.hive.PsuedoRank';
+
+
+create table item_similarity
+as
+select
+  item_a,
+  item_b,
+  cross_score/sqrt(a.score*b_score) as similarity,
+  a.score as a_score,
+  b_score,
+  cross_score,
+  uu
+from item_score a join
+(
+select c.item_a, c.item_b, c.score as cross_score, b.score as b_score, uu
+from item_score b join item_cross_score c on (b.item_id = c.item_b)
+) d on (d.item_a = a.item_id)
+;
+
+create table item_reco
+as
+select
+item_a as item,
+to_sorted_array(item_b, rank) as reco
+from
+(
+select item_a, p_rank(item_a) as rank, item_b, similarity as score
+from
+(
+select item_a, item_b, similarity
+from item_similarity
+where uu >= 3
+distribute by item_a
+sort by item_a asc , similarity desc
+) t1
+) t2
+where rank <= 30
+group by item_a
+;
+```
+
 
 ### Sessionize ###
