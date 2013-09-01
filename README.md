@@ -62,12 +62,17 @@ from t1;
 -- to calculate retention rates for each genre, based on 20130801's user
 -- we can group the records in t2 by genre, and sum up the active_bits using sum_row_vectors
 
+create table t3
+as
 select
-  genre, sum_row_vectors(active_bits)
+  genre, sum_row_vectors(active_bits) as ret_bits
 from t2
 where active_bits[0] = 1  -- active user in '20130801'
 group by genre;
 
+-- sample lines in t3
+'checkin', [327,201,174,177,188,180,189,183,173,152,164,157,145,151,155,160,152,159,162,157,152,153,156,154,146,153,151,163,156,144,152]
+'top', [958,834,830,825,827,821,812,799,803,802,807,798,806,799,779,793,795,799,796,799,790,778,788,779,791,793,783,795,787,779,872]
 ```
 
 ### Collabrative Filtering ###
