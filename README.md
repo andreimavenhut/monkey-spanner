@@ -211,3 +211,43 @@ group by item_a
 ```
 
 ### Sessionize ###
+Suppose you have a access_log table contains timestamp, userid, pageid and other possible fields.  
+Now you want to rearrange them by user session (normally we use 30 min idle time as a separator).  
+
+#### Step 1 : Calculate session start ####
+```sql
+create table tmp_sess_origin
+as
+select userid, sess_ori(collect_set(unix_timestamp(time)), 1800) as origins
+from access_log
+where dt = "20130901"
+group by userid
+```
+
+#### Step 2 : Sessionize ####
+```sql
+create table access_log_session_tagged
+as
+select
+  b.*,
+  match_ori(b.time, a.origins) as sess_origin
+from
+tmp_sess_origin a 
+join
+access_log b
+on (a.userid = b.userid and b.dt = "20130901")
+;
+```
+
+#### Step 3 : Create session story ####
+```sql
+create table sess_story
+as
+select
+userid,
+sess_origin,
+to_sorted_array(pageid, time) as story
+from
+access_log_session_tagged
+group by userid, sess_origin
+```
