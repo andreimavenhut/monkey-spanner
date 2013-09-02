@@ -12,6 +12,9 @@ create temporary function map_count as 'spanner.monkey.hive.GenericUDAFMapCounte
 create temporary function map_array_by_key as 'spanner.monkey.hive.GenericUDFMapToArrayByKey';
 create temporary function sum_row_vectors as 'spanner.monkey.hive.GenericUDAFSumRowVectors';
 create temporary function call_jruby as 'spanner.monkey.hive.GenericUDFCallJRuby';
+create temporary function sess_ori as 'spanner.monkey.hive.UDFFindSessionOrigin';
+create temporary function match_ori as 'spanner.monkey.hive.UDFMatchSessionOrigin';
+create temporary function p_rank as 'spanner.monkey.hive.PsuedoRank';
 ```
 
 ## UDF document ##
@@ -218,7 +221,7 @@ Now you want to rearrange them by user session (normally we use 30 min idle time
 ```sql
 create table tmp_sess_origin
 as
-select userid, sess_ori(collect_set(unix_timestamp(time)), 1800) as origins
+select userid, sess_ori(sort_array(collect_set(unix_timestamp(time))), 1800) as origins
 from access_log
 where dt = "20130901"
 group by userid
