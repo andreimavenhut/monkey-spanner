@@ -24,9 +24,10 @@ create temporary function p_rank as 'spanner.monkey.hive.PsuedoRank';
 ### User retention rate ###
 #### Prepare ####
 ```sql
+-- add jruby.jar first !
+add jar hdfs:///path/to/jruby.jar;
 
 add jar hdfs:///path/to/monkey-spanner.jar;
-add jar hdfs:///path/to/jruby.jar;
 
 create temporary function map_count as 'spanner.monkey.hive.GenericUDAFMapCounter';
 create temporary function map_array_by_key as 'spanner.monkey.hive.GenericUDFMapToArrayByKey';
