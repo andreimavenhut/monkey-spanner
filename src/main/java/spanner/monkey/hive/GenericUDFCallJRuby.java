@@ -1,5 +1,6 @@
 package spanner.monkey.hive;
 
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentException;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentTypeException;
@@ -8,6 +9,7 @@ import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.*;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.StringObjectInspector;
+import org.jruby.embed.EmbedEvalUnit;
 import org.jruby.embed.ScriptingContainer;
 
 import java.util.ArrayList;
@@ -22,12 +24,13 @@ import java.util.Map;
         "3.141592653589793\n...")
 public class GenericUDFCallJRuby extends GenericUDF {
 
-    StringObjectInspector scriptletOI;
+    private StringObjectInspector scriptletOI;
     private ObjectInspector retOI;
     private ObjectInspectorConverters.Converter[] argsConverters;
     private PrimitiveObjectInspector[] argsOI;
 
-    ScriptingContainer container;
+    private ScriptingContainer container;
+    private EmbedEvalUnit evalUnit;
 
     private ObjectInspector getCastedOI(PrimitiveObjectInspector poi) {
 
@@ -150,29 +153,35 @@ public class GenericUDFCallJRuby extends GenericUDF {
 
         this.container = new ScriptingContainer();
 
+        HiveConf conf = new HiveConf();
+        String loadPath = conf.get("jruby.load_path");
+        container.getLoadPaths().add(loadPath);
+
         return retOI;
     }
 
     @Override
     public Object evaluate(DeferredObject[] parameters) throws HiveException {
 
-        String scriptlet;
         int argStart;
         if (retOI instanceof PrimitiveObjectInspector) {
-            scriptlet = scriptletOI.getPrimitiveJavaObject(parameters[0].get());
             argStart = 1;
         } else {
-            scriptlet = scriptletOI.getPrimitiveJavaObject(parameters[1].get());
             argStart = 2;
         }
 
+        if (evalUnit == null) {
+            String scriptlet = scriptletOI.getPrimitiveJavaObject(parameters[argStart - 1].get());
+            evalUnit = container.parse(scriptlet);
+        }
+
         for (int i = argStart; i < parameters.length; i++) {
-            container.put("arg" + (i - argStart + 1),
+            container.put("@arg" + (i - argStart + 1),
                     argsConverters[i - argStart].convert(parameters[i].get())
             );
         }
 
-        Object ret = container.runScriptlet(scriptlet);
+        Object ret = evalUnit.run();
 
         if (retOI.getCategory() == ObjectInspector.Category.LIST) {
             ArrayList list = new ArrayList();
