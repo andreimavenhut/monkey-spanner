@@ -5,16 +5,24 @@ Monkey-spanner is collection of user defined functions (UDF) for ELT/analytical 
 
 ## Get started ##
 ```sql
+-- add jar hdfs:///path/to/jruby.jar;
+-- add jar hdfs:///path/to/fastjson.jar;
+
 add jar hdfs:///path/to/monkey-spanner.jar;
+
 
 create temporary function to_sorted_array as 'spanner.monkey.hive.GenericUDAFToSortedArray';
 create temporary function map_count as 'spanner.monkey.hive.GenericUDAFMapCounter';
 create temporary function map_array_by_key as 'spanner.monkey.hive.GenericUDFMapToArrayByKey';
 create temporary function sum_row_vectors as 'spanner.monkey.hive.GenericUDAFSumRowVectors';
-create temporary function call_jruby as 'spanner.monkey.hive.GenericUDFCallJRuby';
 create temporary function sess_ori as 'spanner.monkey.hive.UDFFindSessionOrigin';
 create temporary function match_ori as 'spanner.monkey.hive.UDFMatchSessionOrigin';
 create temporary function p_rank as 'spanner.monkey.hive.PsuedoRank';
+create temporary function call_jruby as 'spanner.monkey.hive.GenericUDFCallJRuby';
+create temporary function to_json as 'spanner.monkey.hive.GenericUDFToJson';
+create temporary function concat_map as 'spanner.monkey.hive.UDFConcatMap';
+create temporary function url_decode as 'spanner.monkey.hive.UDFURLDecode';
+
 ```
 
 ## UDF document ##
