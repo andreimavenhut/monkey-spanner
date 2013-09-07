@@ -120,35 +120,10 @@ public class GenericUDFCallJRuby extends GenericUDF {
         argsConverters = new ObjectInspectorConverters.Converter[parameters.length - argStart];
 
         for (int i = argStart; i < parameters.length; i++) {
-            if (parameters[i].getCategory() == ObjectInspector.Category.LIST) {
-
-                argsConverters[i - argStart] = ObjectInspectorConverters.getConverter(
-                        parameters[i],
-                        ObjectInspectorFactory.getStandardListObjectInspector(
-                                PrimitiveObjectInspectorFactory.getPrimitiveJavaObjectInspector(
-                                        ((PrimitiveObjectInspector) ((ListObjectInspector) parameters[i]).getListElementObjectInspector()).getPrimitiveCategory()
-                                )
-                        )
-                );
-            } else if (parameters[i].getCategory() == ObjectInspector.Category.MAP) {
-
-                argsConverters[i - argStart] = ObjectInspectorConverters.getConverter(
-                        parameters[i],
-                        ObjectInspectorFactory.getStandardMapObjectInspector(
-                                (PrimitiveObjectInspector) ((MapObjectInspector) parameters[i]).getMapKeyObjectInspector(),
-                                (PrimitiveObjectInspector) ((MapObjectInspector) parameters[i]).getMapValueObjectInspector()
-                        )
-                );
-            } else {
-                argsConverters[i - argStart] =
-                        ObjectInspectorConverters.getConverter(
-                                parameters[i],
-                                PrimitiveObjectInspectorFactory.getPrimitiveJavaObjectInspector(
-                                        ((PrimitiveObjectInspector) parameters[i]).getPrimitiveCategory()
-                                )
-                        );
-            }
-
+            argsConverters[i - argStart] = ObjectInspectorConverters.getConverter(
+                    parameters[i],
+                    UDFUtils.solveOi(parameters[i])
+            );
         }
 
         this.container = new ScriptingContainer();
