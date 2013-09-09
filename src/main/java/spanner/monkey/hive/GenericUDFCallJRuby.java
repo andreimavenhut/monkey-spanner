@@ -9,6 +9,7 @@ import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.*;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.StringObjectInspector;
+import org.jruby.RubyInstanceConfig;
 import org.jruby.embed.EmbedEvalUnit;
 import org.jruby.embed.ScriptingContainer;
 
@@ -30,7 +31,7 @@ public class GenericUDFCallJRuby extends GenericUDF {
     private PrimitiveObjectInspector[] argsOI;
 
     private ScriptingContainer container;
-    private EmbedEvalUnit evalUnit;
+    private EmbedEvalUnit evalUnit = null;
 
     private ObjectInspector getCastedOI(PrimitiveObjectInspector poi) {
 
@@ -126,8 +127,12 @@ public class GenericUDFCallJRuby extends GenericUDF {
             );
         }
 
+        System.setProperty("jruby.compile.invokedynamic", "true");
         this.container = new ScriptingContainer();
+        container.setCompileMode(RubyInstanceConfig.CompileMode.JIT);
 
+
+        // to correctly require ruby code
         HiveConf conf = new HiveConf();
         String loadPath = conf.get("jruby.load_path");
         container.getLoadPaths().add(loadPath);
@@ -138,14 +143,10 @@ public class GenericUDFCallJRuby extends GenericUDF {
     @Override
     public Object evaluate(DeferredObject[] parameters) throws HiveException {
 
-        int argStart;
-        if (retOI instanceof PrimitiveObjectInspector) {
-            argStart = 1;
-        } else {
-            argStart = 2;
-        }
+        int argStart = (retOI instanceof PrimitiveObjectInspector) ? 1 : 2;
 
         if (evalUnit == null) {
+            // only parse script at the first input
             String scriptlet = scriptletOI.getPrimitiveJavaObject(parameters[argStart - 1].get());
             evalUnit = container.parse(scriptlet);
         }
