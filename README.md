@@ -1,15 +1,18 @@
 monkey-spanner
 ==============
-Monkey-spanner is collection of user defined functions (UDF) for ELT/analytical work with Apache Hive.  
+Monkey-spanner is collection of user defined functions (UDF) for ETL/analytical work with Apache Hive.  
 
 
 ## Get started ##
 ```sql
+-- to use call_jruby or exec_jruby
 -- add jar hdfs:///path/to/jruby.jar;
+
+-- to use to_json , you need fastjson.jar
 -- add jar hdfs:///path/to/fastjson.jar;
 
-add jar hdfs:///path/to/monkey-spanner.jar;
 
+add jar hdfs:///path/to/monkey-spanner.jar;
 
 create temporary function to_sorted_array as 'spanner.monkey.hive.GenericUDAFToSortedArray';
 create temporary function map_count as 'spanner.monkey.hive.GenericUDAFMapCounter';
@@ -18,10 +21,12 @@ create temporary function sum_row_vectors as 'spanner.monkey.hive.GenericUDAFSum
 create temporary function sess_ori as 'spanner.monkey.hive.UDFFindSessionOrigin';
 create temporary function match_ori as 'spanner.monkey.hive.UDFMatchSessionOrigin';
 create temporary function p_rank as 'spanner.monkey.hive.PsuedoRank';
-create temporary function call_jruby as 'spanner.monkey.hive.GenericUDFCallJRuby';
 create temporary function to_json as 'spanner.monkey.hive.GenericUDFToJson';
 create temporary function concat_map as 'spanner.monkey.hive.UDFConcatMap';
 create temporary function url_decode as 'spanner.monkey.hive.UDFURLDecode';
+create temporary function to_json as 'spanner.monkey.hive.GenericUDFToJson';
+create temporary function call_jruby as 'spanner.monkey.hive.GenericUDFCallJRuby';
+create temporary function exec_jruby as 'spanner.monkey.hive.GenericUDFCallJRubyV2';
 
 ```
 
