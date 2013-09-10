@@ -47,6 +47,7 @@ public class GenericUDAFToSortedArray extends AbstractGenericUDAFResolver {
         // For PARTIAL1 and COMPLETE: ObjectInspectors for original data
         private PrimitiveObjectInspector inputOI;
         private PrimitiveObjectInspector inputScoreOI;
+        private ListObjectInspector inputScoreListOI;
 
         // For COMPLETE and FINAL: ObjectInspectors for partial aggregations (list
         // of objs)
@@ -67,18 +68,23 @@ public class GenericUDAFToSortedArray extends AbstractGenericUDAFResolver {
 
                 return ObjectInspectorFactory.getStandardMapObjectInspector(
                         (PrimitiveObjectInspector) ObjectInspectorUtils.getStandardObjectInspector(inputOI),
-                        (PrimitiveObjectInspector) ObjectInspectorUtils.getStandardObjectInspector(inputScoreOI)
+                        ObjectInspectorFactory.getStandardListObjectInspector(
+                                (PrimitiveObjectInspector) ObjectInspectorUtils.getStandardObjectInspector(inputScoreOI)
+                        )
                 );
             }
             if (m == Mode.PARTIAL2) {
                 internalMergeOI = (StandardMapObjectInspector) parameters[0];
 
                 inputOI = (PrimitiveObjectInspector) internalMergeOI.getMapKeyObjectInspector();
-                inputScoreOI = (PrimitiveObjectInspector) internalMergeOI.getMapValueObjectInspector();
+                inputScoreListOI = (ListObjectInspector) internalMergeOI.getMapValueObjectInspector();
+                inputScoreOI = (PrimitiveObjectInspector) inputScoreListOI.getListElementObjectInspector();
 
                 return ObjectInspectorFactory.getStandardMapObjectInspector(
                         (PrimitiveObjectInspector) internalMergeOI.getMapKeyObjectInspector(),
-                        (PrimitiveObjectInspector) internalMergeOI.getMapValueObjectInspector()
+                        ObjectInspectorFactory.getStandardListObjectInspector(
+                                (PrimitiveObjectInspector) ObjectInspectorUtils.getStandardObjectInspector(inputScoreListOI.getListElementObjectInspector())
+                        )
                 );
 
             } else {
@@ -101,7 +107,8 @@ public class GenericUDAFToSortedArray extends AbstractGenericUDAFResolver {
                     internalMergeOI = (StandardMapObjectInspector) parameters[0];
 
                     inputOI = (PrimitiveObjectInspector) internalMergeOI.getMapKeyObjectInspector();
-                    inputScoreOI = (PrimitiveObjectInspector) internalMergeOI.getMapValueObjectInspector();
+                    inputScoreListOI = (ListObjectInspector) internalMergeOI.getMapValueObjectInspector();
+                    inputScoreOI = (PrimitiveObjectInspector) ObjectInspectorUtils.getStandardObjectInspector(inputScoreListOI.getListElementObjectInspector());
 
                     loi = ObjectInspectorFactory.getStandardListObjectInspector(
                             (PrimitiveObjectInspector) ObjectInspectorUtils.getStandardObjectInspector(inputOI));
@@ -111,12 +118,12 @@ public class GenericUDAFToSortedArray extends AbstractGenericUDAFResolver {
         }
 
         static class MkMapAggregationBuffer implements AggregationBuffer {
-            Map<Object, Object> container;
+            Map<Object, List<Object>> container;
         }
 
         @Override
         public void reset(AggregationBuffer agg) throws HiveException {
-            ((MkMapAggregationBuffer) agg).container = new HashMap<Object, Object>();
+            ((MkMapAggregationBuffer) agg).container = new HashMap<Object, List<Object>>();
         }
 
         @Override
@@ -142,7 +149,7 @@ public class GenericUDAFToSortedArray extends AbstractGenericUDAFResolver {
         @Override
         public Object terminatePartial(AggregationBuffer agg) throws HiveException {
             MkMapAggregationBuffer myagg = (MkMapAggregationBuffer) agg;
-            HashMap<Object, Object> ret = new HashMap<Object, Object>();
+            HashMap<Object, List<Object>> ret = new HashMap<Object, List<Object>>();
             ret.putAll(myagg.container);
             return ret;
         }
@@ -154,29 +161,49 @@ public class GenericUDAFToSortedArray extends AbstractGenericUDAFResolver {
 
             HashMap<Object, Object> partialResult = (HashMap<Object, Object>) internalMergeOI.getMap(partial);
             for (Map.Entry<Object, Object> i : partialResult.entrySet()) {
-                putIntoMap(i.getKey(), i.getValue(), myagg);
+
+                List<Object> os = (List<Object>) inputScoreListOI.getList(i.getValue());
+                for (Object o : os) {
+                    putIntoMap(i.getKey(), o, myagg);
+                }
+            }
+        }
+
+        public class Tuple<X, Y> {
+            public final X x;
+            public final Y y;
+
+            public Tuple(X x, Y y) {
+                this.x = x;
+                this.y = y;
             }
         }
 
         @Override
         public Object terminate(AggregationBuffer agg) throws HiveException {
             MkMapAggregationBuffer myagg = (MkMapAggregationBuffer) agg;
-            ArrayList<Object> entries = new ArrayList<Object>(myagg.container.entrySet());
+
+            ArrayList<Tuple<Object, Object>> entries = new ArrayList<Tuple<Object, Object>>();
+            for (Map.Entry<Object, List<Object>> i : myagg.container.entrySet()) {
+                for (Object o : i.getValue()) {
+                    entries.add(new Tuple<Object, Object>(i.getKey(), o));
+                }
+            }
 
             Collections.sort(entries, new Comparator() {
                 @Override
                 public int compare(Object o1, Object o2) {
-                    Map.Entry e1 = (Map.Entry) o1;
-                    Map.Entry e2 = (Map.Entry) o2;
+                    Tuple<Object, Object> e1 = (Tuple<Object, Object>) o1;
+                    Tuple<Object, Object> e2 = (Tuple<Object, Object>) o2;
 
-                    return ObjectInspectorUtils.compare(e1.getValue(), inputScoreOI, e2.getValue(), inputScoreOI);
+                    return ObjectInspectorUtils.compare(e1.y, inputScoreOI, e2.y, inputScoreOI);
                 }
             });
 
             ArrayList<Object> ret = new ArrayList<Object>(entries.size());
 
-            for (Object entry : entries) {
-                ret.add(((Map.Entry) entry).getKey());
+            for (Tuple<Object, Object> entry : entries) {
+                ret.add(entry.x);
             }
             return ret;
         }
@@ -184,7 +211,14 @@ public class GenericUDAFToSortedArray extends AbstractGenericUDAFResolver {
         private void putIntoMap(Object p, Object s, MkMapAggregationBuffer myagg) {
             Object pCopy = ObjectInspectorUtils.copyToStandardObject(p, this.inputOI);
             Object sCopy = ObjectInspectorUtils.copyToStandardObject(s, this.inputScoreOI);
-            myagg.container.put(pCopy, sCopy);
+
+            if (myagg.container.containsKey(pCopy)) {
+                myagg.container.get(pCopy).add(sCopy);
+            } else {
+                ArrayList sList = new ArrayList();
+                sList.add(sCopy);
+                myagg.container.put(pCopy, sList);
+            }
         }
     }
 
