@@ -11,9 +11,11 @@ import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.*;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.StringObjectInspector;
+import org.apache.hadoop.io.Text;
 import org.jruby.RubyInstanceConfig;
 import org.jruby.embed.AttributeName;
 import org.jruby.embed.ScriptingContainer;
+import org.jruby.util.KCode;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,13 +33,15 @@ public class GenericUDFCallJRubyV2 extends GenericUDF {
     private ObjectInspector retOI;
     private ObjectInspectorConverters.Converter[] argsConverters;
     private PrimitiveObjectInspector[] argsOI;
-    public static final String EVALUATE_METHOD = "do";
+    public static final String EVALUATE_METHOD = "exec";
 
     private ScriptingContainer container;
     private boolean first = true;
     private Object receiver;
     private Object[] args;
     private Log LOG = LogFactory.getLog(GenericUDFCallJRubyV2.class.getName());
+
+    private final Text retText = new Text();
 
     private ObjectInspector getCastedOI(PrimitiveObjectInspector poi) {
 
@@ -113,8 +117,7 @@ public class GenericUDFCallJRubyV2 extends GenericUDF {
             scriptletOI = (StringObjectInspector)
                     ObjectInspectorUtils.getStandardObjectInspector(parameters[0]);
 
-            retOI = PrimitiveObjectInspectorFactory.getPrimitiveJavaObjectInspector(
-                    PrimitiveObjectInspector.PrimitiveCategory.STRING);
+            retOI = PrimitiveObjectInspectorFactory.getPrimitiveWritableObjectInspector(PrimitiveObjectInspector.PrimitiveCategory.STRING);
 
             argStart = 1;
         } else {
@@ -135,7 +138,9 @@ public class GenericUDFCallJRubyV2 extends GenericUDF {
 
         System.setProperty("jruby.compile.invokedynamic", "true");
         this.container = new ScriptingContainer();
+        container.setKCode(KCode.UTF8);
         container.setAttribute(AttributeName.SHARING_VARIABLES, false);
+
         container.setCompileMode(RubyInstanceConfig.CompileMode.JIT);
 
         HiveConf conf = new HiveConf();
@@ -158,12 +163,9 @@ public class GenericUDFCallJRubyV2 extends GenericUDF {
             first = false;
         }
 
-
         args = new Object[parameters.length - argStart];
         for (int i = argStart; i < parameters.length; i++) {
-            args[i - argStart] =
-                    argsConverters[i - argStart].convert(parameters[i].get());
-
+            args[i - argStart] = argsConverters[i - argStart].convert(parameters[i].get());
         }
 
         Object ret = container.callMethod(receiver, EVALUATE_METHOD, args);
@@ -177,7 +179,8 @@ public class GenericUDFCallJRubyV2 extends GenericUDF {
             map.putAll((Map) ret);
             return map;
         } else {
-            return String.valueOf(ret);
+            retText.set(String.valueOf(ret));
+            return retText;
         }
 
     }
