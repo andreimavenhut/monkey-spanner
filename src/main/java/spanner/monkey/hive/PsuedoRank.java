@@ -1,17 +1,23 @@
 package spanner.monkey.hive;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
+import org.apache.hadoop.hive.ql.udf.UDFType;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 
+@UDFType(deterministic = false)
 public class PsuedoRank extends GenericUDF {
     /**
      * The rank within the group. Resets whenever the group changes.
      */
 
-    private long rank;
+    Log LOG = LogFactory.getLog(PsuedoRank.class);
+
+    private long rank = 1;
     /**
      * Key of the group that we are ranking. Use the string form
      * of the objects since deferred object and equals do not work * as expected even for equivalent values.
@@ -36,7 +42,8 @@ public class PsuedoRank extends GenericUDF {
      * current key.
      */
     private boolean sameAsPreviousKey(DeferredObject[] currentKey) throws HiveException {
-        if (null == currentKey && null == groupKey) {
+
+        if ((null == currentKey || 0 == currentKey.length) && null == groupKey) {
             return true;
         }
         String[] previousKey = groupKey;
