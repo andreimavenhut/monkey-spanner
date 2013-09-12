@@ -18,6 +18,7 @@ create temporary function to_sorted_array as 'spanner.monkey.hive.GenericUDAFToS
 create temporary function map_count as 'spanner.monkey.hive.GenericUDAFMapCounter';
 create temporary function map_array_by_key as 'spanner.monkey.hive.GenericUDFMapToArrayByKey';
 create temporary function sum_row_vectors as 'spanner.monkey.hive.GenericUDAFSumRowVectors';
+create temporary function collect_map as 'spanner.monkey.hive.GenericUDAFCollectMap';
 
 create temporary function sessionize as 'spanner.monkey.hive.GenericUDFSessionize';
 create temporary function sess_ori as 'spanner.monkey.hive.UDFFindSessionOrigin';
