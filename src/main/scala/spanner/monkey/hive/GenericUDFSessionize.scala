@@ -17,9 +17,9 @@ class GenericUDFSessionize extends GenericUDF {
 
   var LOG: Log = LogFactory.getLog(classOf[GenericUDFSessionize])
   var oi: PrimitiveObjectInspector = null
-  var tsConverter: ObjectInspectorConverters.Converter = null
-  var gapConverter: ObjectInspectorConverters.Converter = null
-  var argsOi: Array[PrimitiveObjectInspector] = null
+  @transient var tsConverter: ObjectInspectorConverters.Converter = null
+  @transient var gapConverter: ObjectInspectorConverters.Converter = null
+  @transient var argsOi: Array[PrimitiveObjectInspector] = null
 
   var currentMark: Array[Object] = null
   var currentStart: Long = -1

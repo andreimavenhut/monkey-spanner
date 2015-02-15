@@ -32,6 +32,11 @@ create temporary function to_json as 'spanner.monkey.hive.GenericUDFToJson';
 create temporary function call_jruby as 'spanner.monkey.hive.GenericUDFCallJRuby';
 create temporary function exec_jruby as 'spanner.monkey.hive.GenericUDFCallJRubyV2';
 
+create temporary function fmt_dt as 'spanner.monkey.hive.UDFConvDt';
+
+
+create temporary function ddb_update as 'spanner.monkey.hive.GenericUDFDynamodbUpdate';
+
 ```
 
 ## UDF document ##

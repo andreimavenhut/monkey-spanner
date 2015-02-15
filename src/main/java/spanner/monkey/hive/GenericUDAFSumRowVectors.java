@@ -79,7 +79,7 @@ public class GenericUDAFSumRowVectors extends AbstractGenericUDAFResolver {
     public static class GenericUDAFSumLongArray extends GenericUDAFEvaluator {
 
         private PrimitiveObjectInspector eleOI;
-        private ObjectInspectorConverters.Converter inputConverter;
+        transient private ObjectInspectorConverters.Converter inputConverter;
 
         @Override
         public ObjectInspector init(Mode m, ObjectInspector[] parameters)
