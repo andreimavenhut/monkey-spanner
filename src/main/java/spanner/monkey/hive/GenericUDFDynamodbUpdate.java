@@ -26,7 +26,6 @@ import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.MapredContext;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
-import org.apache.hadoop.hive.ql.udf.UDFType;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
@@ -154,7 +153,6 @@ public class GenericUDFDynamodbUpdate extends GenericUDF {
 
     @Override
     public Object evaluate(DeferredObject[] parameters) throws HiveException {
-
         PrimaryKey key;
         int next;
         if (rangeKeyName != null) {
@@ -186,18 +184,24 @@ public class GenericUDFDynamodbUpdate extends GenericUDF {
             start = System.nanoTime();
         } else {
             long end = start + updateCounter * 1_000_000_000L / writeThroughput;
+            if (System.nanoTime() < end) {
+                LOG.trace(String.format("waiting for throughput %d writes in %d ns", updateCounter, end - start));
+            }
             while (System.nanoTime() < end) ;
         }
 
         try {
             ddbTable.updateItem(spec);
         } catch (AmazonServiceException e) {
-            LOG.error(String.format("update failed on key (%s): %s", 
+            LOG.error(String.format("update failed on key (%s): %s",
                     spec.getKeyComponents(), spec.getAttributeUpdate()));
             throw new HiveException(e);
         }
 
         updateCounter++;
+        if ((updateCounter * 1.0 / writeThroughput) % 30 == 0) {
+            LOG.info(String.format("updated %d items", updateCounter));
+        }
     }
 
     @Override
