@@ -18,20 +18,20 @@ import org.apache.hadoop.io.Text;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.TimeZone;
 
-// query_date() => 20140112
-// query_date(-1) => 20140111
-// query_date('-') => 2014-01-12
-// query_date(-1, '-') => 2014-01-11
+/**
+ * Created by lan on 3/16/15.
+ */
 
-@Description(name = "query_dt",
+@Description(name = "query_dt_utc",
         value = "_FUNC_([dt_diff[, delimiter]]) - Returns the date when the query was submitted.\n" +
                 "e.g., if the query was submitted on 2014/01/23, then\n" +
-                "query_dt() => '20140123'\n" +
-                "query_dt(-1) => '20140122'\n" +
-                "query_dt('-') => '2014-01-23'\n" +
-                "query_dt(3, '-') => '2014-01-26'")
-public class GenericUDFQueryDate extends GenericUDF
+                "query_dt_utc() => '20140123'\n" +
+                "query_dt_utc(-1) => '20140122'\n" +
+                "query_dt_utc('-') => '2014-01-23'\n" +
+                "query_dt_utc(3, '-') => '2014-01-26'")
+public class GenericUDFQueryDateUTC extends GenericUDF
 {
     static final Log LOG = LogFactory.getLog(GenericUDFQueryDate.class.getName());
     private transient WritableIntObjectInspector dtDiffOi;
@@ -78,7 +78,7 @@ public class GenericUDFQueryDate extends GenericUDF
 
     protected String getName()
     {
-        return "query_dt";
+        return "query_dt_utc";
     }
 
     private String calculate(String delim, int diff)
@@ -91,6 +91,7 @@ public class GenericUDFQueryDate extends GenericUDF
         sb.append(delim);
         sb.append("dd");
         SimpleDateFormat sdf = new SimpleDateFormat(sb.toString());
+        sdf.setTimeZone(TimeZone.getTimeZone("GMT"));
         return sdf.format(new Date(ts));
     }
 
@@ -145,7 +146,7 @@ public class GenericUDFQueryDate extends GenericUDF
     public String getDisplayString(String[] children)
     {
         StringBuilder sb = new StringBuilder();
-        sb.append("query_dt(");
+        sb.append("query_dt_utc(");
         if (children.length > 0) {
             sb.append(children[0]);
             for (int i = 1; i < children.length; i++) {
