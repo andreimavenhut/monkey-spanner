@@ -203,6 +203,8 @@ public class GenericUDFDynamodbUpdate extends GenericUDF
                 // todo: should perform a delete op here
                 continue;
             }
+
+            // hacking for Set....
             if (attr.equals("w_c") && value instanceof Map) {
                 Map map = (Map) value;
                 builder.add(new AttributeUpdate(attr).put(map.keySet()));
@@ -231,7 +233,7 @@ public class GenericUDFDynamodbUpdate extends GenericUDF
         else {
             long end = Math.round(start + consumedCapacityCounter * 1_000_000_000L / writeThroughput);
             if (System.nanoTime() < end) {
-                LOG.debug(String.format("waiting for throughput (%d writes, %d consumed capacity in %d ns",
+                LOG.debug(String.format("waiting for throughput (%d writes, %f consumed capacity in %d ns",
                         updateCounter, consumedCapacityCounter, end - start));
             }
             while (System.nanoTime() < end) ;
@@ -255,7 +257,7 @@ public class GenericUDFDynamodbUpdate extends GenericUDF
         }
 
         if ((updateCounter * 1.0 / writeThroughput) % 30 == 0) {
-            LOG.info(String.format("updated %d items, consumed %d capacity", updateCounter, consumedCapacityCounter));
+            LOG.info(String.format("updated %d items, consumed %f capacity", updateCounter, consumedCapacityCounter));
         }
     }
 
