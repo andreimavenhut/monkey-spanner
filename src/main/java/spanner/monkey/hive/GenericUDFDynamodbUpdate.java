@@ -4,25 +4,14 @@ package spanner.monkey.hive;
  * Created by lan on 2/15/15.
  */
 
-import com.amazonaws.AmazonServiceException;
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.auth.InstanceProfileCredentialsProvider;
-import com.amazonaws.regions.Region;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.document.AttributeUpdate;
-import com.amazonaws.services.dynamodbv2.document.DynamoDB;
 import com.amazonaws.services.dynamodbv2.document.PrimaryKey;
-import com.amazonaws.services.dynamodbv2.document.Table;
-import com.amazonaws.services.dynamodbv2.document.UpdateItemOutcome;
 import com.amazonaws.services.dynamodbv2.document.spec.UpdateItemSpec;
 import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
-import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughputExceededException;
 import com.amazonaws.services.dynamodbv2.model.ReturnConsumedCapacity;
 import com.amazonaws.services.dynamodbv2.model.ReturnValue;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -39,9 +28,11 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectIn
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.StringObjectInspector;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.mapred.JobConf;
+import spanner.monkey.hive.dynamodb.UpdateHelper;
 import spanner.monkey.hive.scripting.RubyScriptingUtils;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -50,25 +41,14 @@ import java.util.Map;
  * ddb_update(hash_key[, range_key], attribute, value)
  */
 @Description(name = "ddb_update",
-        value = "_FUNC_(hash_key[, range_key], attribute, value) - " + "Partial update for Dynamodb",
+        value = "_FUNC_(hash_key, range_key(or null), attribute, value) - " + "Partial update for Dynamodb",
         extended = "")
 public class GenericUDFDynamodbUpdate extends GenericUDF
 {
-
     private Log LOG = LogFactory.getLog(GenericUDFDynamodbUpdate.class.getName());
-    public static final String CONF_DYNAMODB_NAME = "ddb_update.table.name";
-    //public static final String CONF_DYNAMODB_UPDATE_EXP = "ddb_update.update.expression";
-    public static final String CONF_DYNAMODB_WRITE_THROUGHPUT = "ddb_update.write.throughput";
-    public static final String CONF_DYNAMODB_WRITE_THROUGHPUT_PERCENTAGE = "ddb_update.write.throughput.percentage";
 
-    private String tableName;
-    private long configWriteThroughput;
-    private double configWriteThroughputPercentage;
-    private long writeThroughput;
+    UpdateHelper updateHelper;
 
-    private DynamoDB ddb;
-    private AmazonDynamoDBClient ddbClient;
-    private Table ddbTable;
     private List<KeySchemaElement> keySchema;
     private String hashKeyName;
     private String rangeKeyName = null;
@@ -78,10 +58,6 @@ public class GenericUDFDynamodbUpdate extends GenericUDF
     private ObjectInspectorConverters.Converter[] attributeValueConverters;
     private IntWritable ret = new IntWritable();
 
-    private long updateCounter = 0;
-    private double consumedCapacityCounter = 0;
-    private Long start = null;
-
     @Override
     public void configure(MapredContext mapredContext)
     {
@@ -90,42 +66,19 @@ public class GenericUDFDynamodbUpdate extends GenericUDF
         }
 
         JobConf jobConf = mapredContext.getJobConf();
-        tableName = jobConf.get(CONF_DYNAMODB_NAME);
-        configWriteThroughput = jobConf.getLong(CONF_DYNAMODB_WRITE_THROUGHPUT, 0);
-        configWriteThroughputPercentage = jobConf.getDouble(CONF_DYNAMODB_WRITE_THROUGHPUT_PERCENTAGE, 0.5);
+        updateHelper = new UpdateHelper(jobConf);
 
-        Preconditions.checkArgument(!Strings.isNullOrEmpty(tableName), "%s must be set!", CONF_DYNAMODB_NAME);
+        LOG.warn(String.format("Gonna update Dynamodb's '%s' table", updateHelper.tableName));
 
-        ClientConfiguration configuration = new ClientConfiguration();
-        configuration.setUseTcpKeepAlive(true);
-        configuration.setUseGzip(true);
-        ddbClient = Region.getRegion(Regions.AP_NORTHEAST_1).createClient(AmazonDynamoDBClient.class,
-                new InstanceProfileCredentialsProvider(), configuration);
-        ddb = new DynamoDB(ddbClient);
-
-        ddbTable = ddb.getTable(tableName);
-        TableDescription describe = ddbTable.describe();
+        TableDescription describe = updateHelper.describeTable();
         keySchema = describe.getKeySchema();
         hashKeyName = keySchema.get(0).getAttributeName();
         if (keySchema.size() == 2) {
             rangeKeyName = keySchema.get(1).getAttributeName();
         }
 
-        LOG.warn(String.format("Gonna update Dynamodb's '%s' table", tableName));
-
-        int tasks = jobConf.getNumReduceTasks();
-        Long provisionedWriteCapacityUnits = describe.getProvisionedThroughput().getWriteCapacityUnits();
-        if (configWriteThroughput == 0 || configWriteThroughput > provisionedWriteCapacityUnits) {
-            writeThroughput = (long) (provisionedWriteCapacityUnits * configWriteThroughputPercentage / tasks);
-        }
-        else {
-            writeThroughput = configWriteThroughput / tasks;
-        }
-
-        Preconditions.checkState(writeThroughput > 0, "writeThroughput can't be 0, please try set %s or %s",
-                CONF_DYNAMODB_WRITE_THROUGHPUT, CONF_DYNAMODB_WRITE_THROUGHPUT_PERCENTAGE);
-
-        LOG.warn(String.format("We've got %d reducers, each will write at %d/s rate", tasks, writeThroughput));
+        LOG.warn(String.format("We've got %d reducers, each will write at %d/s rate",
+                updateHelper.reduceTasks, updateHelper.writeThroughput));
     }
 
     @Override
@@ -137,39 +90,44 @@ public class GenericUDFDynamodbUpdate extends GenericUDF
         Preconditions.checkArgument(parameters[i].getCategory().equals(ObjectInspector.Category.PRIMITIVE));
         hashKeyOI = (PrimitiveObjectInspector) parameters[i];
         PrimitiveCategory hashKeyCategory = hashKeyOI.getPrimitiveCategory();
-
         Preconditions.checkArgument(hashKeyCategory.equals(PrimitiveCategory.STRING) ||
                         hashKeyCategory.equals(PrimitiveCategory.INT) ||
                         hashKeyCategory.equals(PrimitiveCategory.LONG),
                 "only String/int/long type hash key is supported");
-
         i++;
 
-        if (parameters.length % 2 == 0) {
-            Preconditions.checkArgument(parameters[i].getCategory().equals(ObjectInspector.Category.PRIMITIVE));
-            rangeKeyOI = (PrimitiveObjectInspector) parameters[i];
-            Preconditions.checkArgument(hashKeyCategory.equals(PrimitiveCategory.STRING) ||
-                            hashKeyCategory.equals(PrimitiveCategory.INT) ||
-                            hashKeyCategory.equals(PrimitiveCategory.LONG),
-                    "only String/int/long type range key is supported");
-            i++;
-        }
+        Preconditions.checkArgument(parameters[i].getCategory().equals(ObjectInspector.Category.PRIMITIVE));
+        rangeKeyOI = (PrimitiveObjectInspector) parameters[i];
+        Preconditions.checkArgument(hashKeyCategory.equals(PrimitiveCategory.STRING) ||
+                        hashKeyCategory.equals(PrimitiveCategory.INT) ||
+                        hashKeyCategory.equals(PrimitiveCategory.LONG),
+                "only String/int/long type range key is supported");
+        i++;
 
-        int attrNum = (parameters.length - i) / 2;
-
-        attributeNameOIs = new StringObjectInspector[attrNum];
-        attributeValueConverters = new ObjectInspectorConverters.Converter[attrNum];
-
-        for (int n = 0; n < attrNum; n++) {
-            Preconditions.checkArgument(parameters[i] instanceof StringObjectInspector,
-                    "only support string type attribute name but got " + parameters[i].getTypeName());
-            attributeNameOIs[n] = (StringObjectInspector) parameters[i];
-            i++;
-
-
-            attributeValueConverters[n] = ObjectInspectorConverters.getConverter(parameters[i],
+        if (parameters.length == 3) {
+            Preconditions.checkArgument(parameters[i].getCategory() == ObjectInspector.Category.MAP,
+                    "Raw item write only accept Map object");
+            attributeValueConverters = new ObjectInspectorConverters.Converter[1];
+            attributeValueConverters[0] = ObjectInspectorConverters.getConverter(
+                    parameters[i],
                     RubyScriptingUtils.resolveOI(parameters[i]));
-            i++;
+        }
+        else {
+            int attrNum = (parameters.length - i) / 2;
+
+            attributeNameOIs = new StringObjectInspector[attrNum];
+            attributeValueConverters = new ObjectInspectorConverters.Converter[attrNum];
+
+            for (int n = 0; n < attrNum; n++) {
+                Preconditions.checkArgument(parameters[i] instanceof StringObjectInspector,
+                        "only support string type attribute name but got " + parameters[i].getTypeName());
+                attributeNameOIs[n] = (StringObjectInspector) parameters[i];
+                i++;
+
+                attributeValueConverters[n] = ObjectInspectorConverters.getConverter(parameters[i],
+                        RubyScriptingUtils.resolveOI(parameters[i]));
+                i++;
+            }
         }
 
         return PrimitiveObjectInspectorFactory.getPrimitiveWritableObjectInspector(PrimitiveCategory.INT);
@@ -179,91 +137,72 @@ public class GenericUDFDynamodbUpdate extends GenericUDF
     public Object evaluate(DeferredObject[] parameters) throws HiveException
     {
         PrimaryKey key;
-        int next;
+        int next = 0;
         if (rangeKeyName != null) {
             key = new PrimaryKey(hashKeyName, hashKeyOI.getPrimitiveJavaObject(parameters[0].get()),
                     rangeKeyName, rangeKeyOI.getPrimitiveJavaObject(parameters[1].get()));
-            next = 2;
         }
         else {
             key = new PrimaryKey(hashKeyName, hashKeyOI.getPrimitiveJavaObject(parameters[0].get()));
-            next = 1;
         }
-
-        ImmutableList.Builder<AttributeUpdate> builder = ImmutableList.<AttributeUpdate>builder();
-
-        for (int i = 0; i < attributeNameOIs.length; i++) {
-            String attr = attributeNameOIs[i].getPrimitiveJavaObject(parameters[next].get()).toString();
-            next++;
-            Object value = attributeValueConverters[i].convert(parameters[next].get());
-
-            next++;
-            if (value instanceof String && ((String) value).isEmpty()) {
-                // skip empty string value...
-                // todo: should perform a delete op here
-                continue;
-            }
-
-            // hacking for Set....
-            if (attr.equals("w_c") && value instanceof Map) {
-                Map map = (Map) value;
-                builder.add(new AttributeUpdate(attr).put(map.keySet()));
-            }
-            else {
-                builder.add(new AttributeUpdate(attr).put(value));
-            }
-        }
-
+        next = 2;
         UpdateItemSpec updateItemSpec = new UpdateItemSpec()
                 .withPrimaryKey(key)
                 .withReturnValues(ReturnValue.NONE)
-                .withAttributeUpdate(builder.build())
                 .withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
 
-        update(updateItemSpec);
-        ret.set(1);
-        return ret;
-    }
+        if (attributeNameOIs == null) {
+            Object value = attributeValueConverters[0].convert(parameters[next].get());
+            if (value instanceof Map) {
+                Map<Object, Object> map = (Map<Object, Object>) value;
+                List<AttributeUpdate> attributeUpdates = new ArrayList<>();
+                for (Map.Entry<Object, Object> a : map.entrySet()) {
+                    attributeUpdates.add(new AttributeUpdate((String) a.getKey()).put(a.getValue()));
+                }
 
-    private void update(UpdateItemSpec spec) throws HiveException
-    {
-        if (start == null) {
-            start = System.nanoTime();
+                updateItemSpec.withAttributeUpdate(attributeUpdates);
+            }
         }
         else {
-            long end = Math.round(start + consumedCapacityCounter * 1_000_000_000L / writeThroughput);
-            if (System.nanoTime() < end) {
-                LOG.debug(String.format("waiting for throughput (%d writes, %f consumed capacity in %d ns",
-                        updateCounter, consumedCapacityCounter, end - start));
+
+            ImmutableList.Builder<AttributeUpdate> builder = ImmutableList.<AttributeUpdate>builder();
+
+            for (int i = 0; i < attributeNameOIs.length; i++) {
+                String attr = attributeNameOIs[i].getPrimitiveJavaObject(parameters[next].get()).toString();
+                next++;
+                Object value = attributeValueConverters[i].convert(parameters[next].get());
+
+                next++;
+                if (value instanceof String && ((String) value).isEmpty()) {
+                    // skip empty string value...
+                    // todo: should perform a delete op here
+                    continue;
+                }
+
+                // hacking for Set....
+                if (attr.equals("w_c") && value instanceof Map) {
+                    Map map = (Map) value;
+                    builder.add(new AttributeUpdate(attr).put(map.keySet()));
+                }
+                else {
+                    builder.add(new AttributeUpdate(attr).put(value));
+                }
             }
-            while (System.nanoTime() < end) ;
+
+            updateItemSpec.withAttributeUpdate(builder.build());
         }
 
-        try {
-            UpdateItemOutcome outcome = ddbTable.updateItem(spec);
-            consumedCapacityCounter += outcome.getUpdateItemResult().getConsumedCapacity().getCapacityUnits();
-            updateCounter++;
-        }
-        catch (ProvisionedThroughputExceededException e) {
-            LOG.warn(String.format("ProvisionedThroughputExceededException occured, try to speed down!",
-                    spec.getKeyComponents(), spec.getAttributeUpdate()));
-            throw new HiveException(e);
-
-        }
-        catch (AmazonServiceException e) {
-            LOG.error(String.format("update failed on key (%s): %s",
-                    spec.getKeyComponents(), spec.getAttributeUpdate()));
-            throw new HiveException(e);
-        }
-
-        if ((updateCounter * 1.0 / writeThroughput) % 30 == 0) {
-            LOG.info(String.format("updated %d items, consumed %f capacity", updateCounter, consumedCapacityCounter));
-        }
+        updateHelper.update(updateItemSpec);
+        ret.set(1);
+        return ret;
     }
 
     @Override
     public void close() throws IOException
     {
+        LOG.info(String.format("Consumed %f write capacities with %d item updated",
+                updateHelper.getConsumedCapacityCounter(),
+                updateHelper.getUpdateCounter()));
         LOG.info("Closing UDF ddb_update");
     }
 
