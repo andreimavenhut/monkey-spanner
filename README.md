@@ -114,7 +114,7 @@ group by genre;
 -- Now you can get retention rate as:
 select
   genre, ret_cnts,
-  call_jruby(array(1.1), 'ret = arg1.map{|x| (x/(arg2.to_f)*100).round(2).to_f}', ret_cnts, ret_cnts[0]) as ret_rate
+  call_jruby(array(1.1), 'ret = @arg1.map{|x| (x/(@arg2.to_f)*100).round(2).to_f}', ret_cnts, ret_cnts[0]) as ret_rate
 from t3;
 
 -- call_jruby executes a ruby scriptlet
@@ -134,7 +134,7 @@ as
 select
   genre,
   sum_row_vectors(
-    call_jruby(Array(1), 'conti=true; ret = arg1.map {|x| conti = false if not (x>0); (conti)?x:0 }', active_bits)
+    call_jruby(Array(1), 'conti=true; ret = @arg1.map {|x| conti = false if not (x>0); (conti)?x:0 }', active_bits)
   ) as ret_cnts
 from t2
 where active_bits[0] = 1  -- active user in '20130801'
@@ -146,7 +146,7 @@ group by genre;
 
 select
   genre, ret_cnts,
-  call_jruby(array(1.1), 'ret = arg1.map{|x| (x/(arg2.to_f)*100).round(2).to_f}', ret_cnts, ret_cnts[0]) as ret_rate
+  call_jruby(array(1.1), 'ret = @arg1.map{|x| (x/(@arg2.to_f)*100).round(2).to_f}', ret_cnts, ret_cnts[0]) as ret_rate
 from t3b;
 
 -- the result may looks like:
